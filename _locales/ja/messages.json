@@ -1,0 +1,4 @@
+{
+  "extName": { "message": "SoulArchive.AI" },
+  "extDesc": { "message": "AIとの会話をMarkdownとして保存し、キャラクターの再現に使えるコア（master）運用を支援します。" }
+}
