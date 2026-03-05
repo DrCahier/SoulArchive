@@ -293,9 +293,9 @@ function handlePre(preNode) {
     if (codeEl) {
         const langMatch = (codeEl.className || '').match(/language-(\S+)/);
         const lang = langMatch ? langMatch[1] : '';
-        raw = '```' + lang + '\n' + codeEl.textContent + '\n```';
+        raw = '~~~~' + lang + '\n' + codeEl.textContent + '\n~~~~';
     } else {
-        raw = '```\n' + preNode.textContent + '\n```';
+        raw = '~~~~\n' + preNode.textContent + '\n~~~~';
     }
     const idx = _codeBlockStore.length;
     _codeBlockStore.push(raw);
