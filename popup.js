@@ -14,19 +14,25 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     }
 
     if (response && response.markdown) {
-      downloadMarkdown(response.markdown);
+      downloadMarkdown(response.markdown, response.pageTitle || 'Untitled');
     }
     // toast 系の応答（開発中 / 未対応）は content.js 側で処理済み
     window.close();
   });
 });
 
-function downloadMarkdown(content) {
+function downloadMarkdown(content, pageTitle) {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  const filename =
-    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
-    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.txt`;
+  const datePart = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const timePart = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  // ファイル名サニタイズ: \/:*?"<>| → -、連続空白→1つ、先頭末尾の空白とドット除去、最大80文字
+  let safeTitle = pageTitle
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s.]+|[\s.]+$/g, '')
+    .slice(0, 80) || 'Untitled';
+  const filename = `${safeTitle}_${datePart}-${timePart}.txt`;
 
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const reader = new FileReader();
