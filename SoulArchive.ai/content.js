@@ -75,6 +75,44 @@ function restoreCodeBlocks(text) {
     });
 }
 
+/**
+ * ユーザー発言用: CodeMirror DOM (span+br連なり) から改行を正確に復元する。
+ * - SPAN / テキストノード → textContent をそのまま追加
+ * - BR → \n を追加（連続BRはそのまま連続 \n）
+ * - ノード間に勝手にスペースを挿入しない
+ * - innerText / textContent による一括取得は禁止
+ */
+function extractPlainText(root) {
+    let out = '';
+
+    function walk(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            out += node.nodeValue;
+            return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+        const tag = node.tagName.toLowerCase();
+
+        // 不要な要素をスキップ
+        if (['button', 'svg', 'style', 'script', 'nav'].includes(tag)) return;
+
+        // BR → 改行1つ（連続BRはそのまま連続\n）
+        if (tag === 'br') {
+            out += '\n';
+            return;
+        }
+
+        // それ以外は子ノードを順に走査
+        for (const child of node.childNodes) {
+            walk(child);
+        }
+    }
+
+    walk(root);
+    return out;
+}
+
 function extractConversation(pageTitle) {
     const turns = document.querySelectorAll('[data-testid^="conversation-turn-"]');
     const blocks = [];
@@ -95,11 +133,20 @@ function extractConversation(pageTitle) {
 
         // ターンごとにストアをリセット
         _codeBlockStore = [];
-        const md = convertNode(contentRoot);
-        const cleaned = normalize(md);
-        // 最後にプレースホルダを元のコードブロックに復元
-        const final = restoreCodeBlocks(cleaned);
-        if (final) blocks.push(`${label}\n${final}`);
+
+        let md;
+        if (isUser) {
+            // ユーザー発言: CodeMirror DOM (span+br) から改行を正確に復元
+            md = extractPlainText(contentRoot);
+        } else {
+            // AI発言: ブロック要素のMarkdown変換パイプライン
+            md = convertNode(contentRoot);
+            md = normalize(md);
+            md = restoreCodeBlocks(md);
+        }
+
+        const text = md.trim();
+        if (text) blocks.push(`${label}\n${text}`);
     });
 
     const body = blocks.join('\n\n---\n\n');
@@ -287,15 +334,21 @@ function inlineContent(node) {
 
 // ─── コードブロック ─── 中身は1文字も変更禁止
 // DOM段階でプレースホルダに退避し、全整形処理から完全に隔離する
+// CodeMirror DOM (span+br) の場合は extractPlainText で改行を正確に復元する
 function handlePre(preNode) {
     let raw;
     const codeEl = preNode.querySelector('code');
     if (codeEl) {
         const langMatch = (codeEl.className || '').match(/language-(\S+)/);
         const lang = langMatch ? langMatch[1] : '';
-        raw = '~~~~' + lang + '\n' + codeEl.textContent + '\n~~~~';
+        // CodeMirror の .cm-content があればそこから走査、なければ code 要素全体
+        const contentRoot = codeEl.querySelector('.cm-content') || codeEl;
+        const content = extractPlainText(contentRoot);
+        raw = '~~~~' + lang + '\n' + content + '\n~~~~';
     } else {
-        raw = '~~~~\n' + preNode.textContent + '\n~~~~';
+        const contentRoot = preNode.querySelector('.cm-content') || preNode;
+        const content = extractPlainText(contentRoot);
+        raw = '~~~~\n' + content + '\n~~~~';
     }
     const idx = _codeBlockStore.length;
     _codeBlockStore.push(raw);
