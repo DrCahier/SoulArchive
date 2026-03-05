@@ -65,6 +65,16 @@ function showToast(message) {
 // ═══════════════════════════════════════════════
 //  会話抽出
 // ═══════════════════════════════════════════════
+// コードブロック保護用ストア（ターンごとにリセット）
+let _codeBlockStore = [];
+
+/** プレースホルダを元のコードブロックに復元する */
+function restoreCodeBlocks(text) {
+    return text.replace(/%%CODEBLOCK_(\d+)%%/g, (_m, idx) => {
+        return _codeBlockStore[parseInt(idx, 10)];
+    });
+}
+
 function extractConversation(pageTitle) {
     const turns = document.querySelectorAll('[data-testid^="conversation-turn-"]');
     const blocks = [];
@@ -83,9 +93,13 @@ function extractConversation(pageTitle) {
             contentRoot = turn.querySelector('.markdown') || turn;
         }
 
+        // ターンごとにストアをリセット
+        _codeBlockStore = [];
         const md = convertNode(contentRoot);
         const cleaned = normalize(md);
-        if (cleaned) blocks.push(`${label}\n${cleaned}`);
+        // 最後にプレースホルダを元のコードブロックに復元
+        const final = restoreCodeBlocks(cleaned);
+        if (final) blocks.push(`${label}\n${final}`);
     });
 
     const body = blocks.join('\n\n---\n\n');
@@ -118,34 +132,18 @@ function toJSTISO(date) {
 }
 
 // ═══════════════════════════════════════════════
-//  正規化（手順4: 最後に適用）
-//
-//  1. コードブロックを先にプレースホルダに退避
-//  2. 通常の正規化を適用
-//  3. プレースホルダを元のコードブロックに復元
-//
-//  - ␠␠ は削除禁止
-//  - 空白だけの行を除去
-//  - \n\n\n+ → \n\n に圧縮
-//  - ␠␠\n\n を作らない
+//  正規化
+//  コードブロックは handlePre で既にプレースホルダ化済み。
+//  ここではプレースホルダ行を一切触らずにテキスト整形だけを行う。
 // ═══════════════════════════════════════════════
 function normalize(text) {
-    // ── 手順1: コードブロックをプレースホルダに退避 ──
-    const codeBlocks = [];
-    text = text.replace(/```[\s\S]*?```/g, (match) => {
-        const idx = codeBlocks.length;
-        codeBlocks.push(match);
-        return `\n%%CODEBLOCK_${idx}%%\n`;
-    });
-
-    // ── 手順2: 通常の正規化 ──
-
-    // 空白だけの行を除去
+    // 行単位で処理
     let lines = text.split('\n');
     lines = lines.map(line => {
-        if (/^\s+$/.test(line)) {
-            return '';
-        }
+        // プレースホルダ行はそのまま保護
+        if (line.includes('%%CODEBLOCK_')) return line;
+        // 空白だけの行を除去
+        if (/^\s+$/.test(line)) return '';
         return line;
     });
     text = lines.join('\n');
@@ -155,11 +153,6 @@ function normalize(text) {
 
     // ␠␠\n\n を作らない → ␠␠\n に修正
     text = text.replace(/  \n\n/g, '  \n');
-
-    // ── 手順3: プレースホルダをコードブロックに復元 ──
-    text = text.replace(/%%CODEBLOCK_(\d+)%%/g, (_match, idx) => {
-        return codeBlocks[parseInt(idx, 10)];
-    });
 
     return text.trim();
 }
@@ -292,15 +285,21 @@ function inlineContent(node) {
     return out;
 }
 
-// ─── コードブロック ─── 中身は一切変更禁止
+// ─── コードブロック ─── 中身は1文字も変更禁止
+// DOM段階でプレースホルダに退避し、全整形処理から完全に隔離する
 function handlePre(preNode) {
+    let raw;
     const codeEl = preNode.querySelector('code');
     if (codeEl) {
         const langMatch = (codeEl.className || '').match(/language-(\S+)/);
         const lang = langMatch ? langMatch[1] : '';
-        return '\n```' + lang + '\n' + codeEl.textContent + '\n```\n\n';
+        raw = '```' + lang + '\n' + codeEl.textContent + '\n```';
+    } else {
+        raw = '```\n' + preNode.textContent + '\n```';
     }
-    return '\n```\n' + preNode.textContent + '\n```\n\n';
+    const idx = _codeBlockStore.length;
+    _codeBlockStore.push(raw);
+    return '\n%%CODEBLOCK_' + idx + '%%\n\n';
 }
 
 // ─── リンク ───
